@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>S&amp;P 500 Algorithmic Trading Screener &amp; Portfolio Auditor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-blue-500/20">SP</div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white">S&amp;P 500 Algorithmic Screener</h1>
+          <p class="text-xs text-slate-400">Enterprise Portfolio Auditor &amp; Technical Consensus Engine</p>
+        </div>
+      </div>
+      <div id="statusBar" class="flex items-center gap-3 text-xs">
+        <span class="px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">Universe: <span id="universeCount" class="text-blue-400 font-semibold">—</span></span>
+        <span class="px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">Last Scan: <span id="lastScanTime" class="text-emerald-400 font-semibold">Never</span></span>
+        <span id="scanIndicator" class="hidden px-3 py-1 rounded-full bg-blue-900/50 text-blue-300 border border-blue-700 scan-pulse">Scanning…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-[1920px] mx-auto px-6 py-6 space-y-6">
+
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        Scan Control Center
+      </h2>
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-end">
+        <div class="lg:col-span-2">
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="inputTotalStocks">Total Stocks to Scan</label>
+          <input type="number" id="inputTotalStocks" value="500" min="10" max="500" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
+        </div>
+        <div class="lg:col-span-1">
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="inputTopBuys">Top N Buys</label>
+          <input type="number" id="inputTopBuys" value="15" min="1" max="100" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
+        </div>
+        <div class="lg:col-span-1">
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="inputTopHolds">Top N Holds</label>
+          <input type="number" id="inputTopHolds" value="15" min="1" max="100" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
+        </div>
+        <div class="lg:col-span-6">
+          <span class="block text-xs font-medium text-slate-400 mb-1.5">Active Strategy Engines</span>
+          <div class="flex flex-wrap gap-3">
+            <label class="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-colors">
+              <input type="checkbox" id="stratMA" checked class="rounded border-slate-600 text-blue-500 focus:ring-blue-500 bg-slate-700" />
+              <span class="text-xs font-medium">MA Crossover</span>
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-colors">
+              <input type="checkbox" id="stratRSI" checked class="rounded border-slate-600 text-blue-500 focus:ring-blue-500 bg-slate-700" />
+              <span class="text-xs font-medium">RSI (Wilder)</span>
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-colors">
+              <input type="checkbox" id="stratMACD" checked class="rounded border-slate-600 text-blue-500 focus:ring-blue-500 bg-slate-700" />
+              <span class="text-xs font-medium">MACD</span>
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-colors">
+              <input type="checkbox" id="stratBB" checked class="rounded border-slate-600 text-blue-500 focus:ring-blue-500 bg-slate-700" />
+              <span class="text-xs font-medium">Bollinger Bands</span>
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-colors">
+              <input type="checkbox" id="stratStoch" checked class="rounded border-slate-600 text-blue-500 focus:ring-blue-500 bg-slate-700" />
+              <span class="text-xs font-medium">Stochastic</span>
+            </label>
+          </div>
+        </div>
+        <div class="lg:col-span-2">
+          <button id="btnScan" type="button" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold py-2.5 px-4 rounded-lg shadow-lg shadow-blue-500/25 transition-all active:scale-[0.98] text-sm">
+            Execute Bulk Market Scan
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Portfolio Management Ledger
+      </h2>
+      <div class="flex flex-wrap gap-3 items-end mb-5 p-4 bg-slate-850 rounded-lg border border-slate-800">
+        <div class="w-32">
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="inputTicker">Ticker</label>
+          <input type="text" id="inputTicker" placeholder="AAPL" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm uppercase focus:ring-2 focus:ring-emerald-500 outline-none" />
+        </div>
+        <div class="w-36">
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="inputBuyPrice">Buy Price ($)</label>
+          <input type="number" id="inputBuyPrice" placeholder="170.00" step="0.01" min="0" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+        </div>
+        <button id="btnAddPosition" type="button" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2 px-5 rounded-lg text-sm transition-colors">Add Position</button>
+        <p id="portfolioMsg" class="text-xs text-slate-500 self-center"></p>
+      </div>
+      <div class="overflow-x-auto rounded-lg border border-slate-800 max-h-72 overflow-y-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-850">
+            <tr class="text-left text-xs text-slate-400 uppercase tracking-wider">
+              <th class="px-4 py-3 font-semibold">Ticker</th>
+              <th class="px-4 py-3 font-semibold">Buy Price</th>
+              <th class="px-4 py-3 font-semibold">Market Price</th>
+              <th class="px-4 py-3 font-semibold">P&amp;L %</th>
+              <th class="px-4 py-3 font-semibold">Consensus</th>
+              <th class="px-4 py-3 font-semibold">Score</th>
+              <th class="px-4 py-3 font-semibold">Portfolio Action</th>
+              <th class="px-4 py-3 font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody id="portfolioBody" class="divide-y divide-slate-800">
+            <tr><td colspan="8" class="px-4 py-8 text-center text-slate-500 text-sm">No open positions. Add a position above or run a scan first.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-xl flex flex-col min-h-[480px]">
+        <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Top BUY Candidates
+          </h2>
+          <span id="buyDeskCount" class="text-xs text-slate-500">—</span>
+        </div>
+        <div class="overflow-x-auto flex-1 overflow-y-auto max-h-[600px]">
+          <table class="w-full text-sm desk-table">
+            <thead class="bg-slate-850">
+              <tr class="text-left text-xs text-slate-400 uppercase tracking-wider">
+                <th class="px-4 py-3 font-semibold">#</th>
+                <th class="px-4 py-3 font-semibold">Ticker</th>
+                <th class="px-4 py-3 font-semibold">Sector</th>
+                <th class="px-4 py-3 font-semibold">Price</th>
+                <th class="px-4 py-3 font-semibold">Consensus</th>
+                <th class="px-4 py-3 font-semibold">Score</th>
+                <th class="px-4 py-3 font-semibold">Strategy Metrics</th>
+              </tr>
+            </thead>
+            <tbody id="buyDeskBody" class="divide-y divide-slate-800">
+              <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">Execute a market scan to populate BUY candidates.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-xl flex flex-col min-h-[480px]">
+        <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            Top HOLD Candidates
+          </h2>
+          <span id="holdDeskCount" class="text-xs text-slate-500">—</span>
+        </div>
+        <div class="overflow-x-auto flex-1 overflow-y-auto max-h-[600px]">
+          <table class="w-full text-sm desk-table">
+            <thead class="bg-slate-850">
+              <tr class="text-left text-xs text-slate-400 uppercase tracking-wider">
+                <th class="px-4 py-3 font-semibold">#</th>
+                <th class="px-4 py-3 font-semibold">Ticker</th>
+                <th class="px-4 py-3 font-semibold">Sector</th>
+                <th class="px-4 py-3 font-semibold">Price</th>
+                <th class="px-4 py-3 font-semibold">Consensus</th>
+                <th class="px-4 py-3 font-semibold">Score</th>
+                <th class="px-4 py-3 font-semibold">Strategy Metrics</th>
+              </tr>
+            </thead>
+            <tbody id="holdDeskBody" class="divide-y divide-slate-800">
+              <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">Execute a market scan to populate HOLD candidates.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="max-w-[1920px] mx-auto px-6 py-4 text-center text-xs text-slate-600 border-t border-slate-900">
+    S&amp;P 500 Algorithmic Screener v1.0 — Synthetic market data for demonstration. Not financial advice.
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
