@@ -22,6 +22,17 @@ npm run start
 
 Opens at [http://localhost:4173](http://localhost:4173) with portfolio API enabled.
 
+### Oracle Cloud (free VM)
+
+Deploy to an Oracle Always Free VM with nginx + systemd:
+
+```bash
+# On the Ubuntu VM (see deploy/oracle-cloud/README.md)
+curl -fsSL https://raw.githubusercontent.com/chandankmr925/ZEBRA/main/deploy/oracle-cloud/setup.sh | bash
+```
+
+Full guide: [deploy/oracle-cloud/README.md](deploy/oracle-cloud/README.md)
+
 ### Portfolio persistence (on disk)
 
 Your portfolio ledger is saved to:

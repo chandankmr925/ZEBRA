@@ -58,6 +58,15 @@ async function serveStatic(req, res) {
 }
 
 const server = createServer((req, res) => {
+  const urlPath = req.url?.split('?')[0] || '/';
+
+  if (urlPath === '/api/health' && req.method === 'GET') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ ok: true, service: 'zebra' }));
+    return;
+  }
+
   if (req.url?.startsWith('/api/auth')) {
     handleAuthApi(req, res);
     return;
@@ -81,7 +90,7 @@ const server = createServer((req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`S&P 500 Screener running at http://localhost:${PORT}`);
-  console.log(`User portfolios: ${path.join(__dirname, 'data', 'users')}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`ZEBRA running on http://0.0.0.0:${PORT}`);
+  console.log(`User data: ${path.join(__dirname, 'data')}`);
 });
