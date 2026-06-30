@@ -1,10 +1,30 @@
 /** Synthetic S&P 500 universe generator with sector-aware price dynamics */
 
 import { HISTORY_DAYS, MIN_HISTORY_BARS } from '../config/constants.js';
-import { SECTORS, SECTOR_KEYS } from '../config/sectors.js';
-import { SP500_TICKERS } from '../config/tickers.js';
+import { getReferencePrice } from '../config/referencePrices.js';
+import { SECTORS } from '../config/sectors.js';
+import { getSectorForTicker } from '../config/tickerSectors.js';
+import { buildUniqueTickerList } from '../config/universeTickers.js';
 import { round2 } from '../utils/math.js';
 import { createRNG, gaussianRandom, tickerSeed } from '../utils/rng.js';
+
+/**
+ * Scale OHLCV history proportionally so the final close lands on targetPrice.
+ * @param {import('../types.js').OHLCVBar[]} history
+ * @param {number} targetPrice
+ */
+function scaleHistoryToTarget(history, targetPrice) {
+  const lastClose = history[history.length - 1]?.close;
+  if (!lastClose || lastClose <= 0) return;
+
+  const scale = targetPrice / lastClose;
+  for (const bar of history) {
+    bar.open = round2(bar.open * scale);
+    bar.close = round2(bar.close * scale);
+    bar.high = round2(Math.max(bar.high * scale, bar.open, bar.close));
+    bar.low = round2(Math.min(bar.low * scale, bar.open, bar.close));
+  }
+}
 
 /**
  * @param {number} [count=500]
@@ -18,23 +38,26 @@ export function generateSP500Universe(count = 500) {
   }
 
   const stocks = [];
+  const tickers = buildUniqueTickerList(count);
 
   for (let i = 0; i < count; i++) {
-    const ticker = SP500_TICKERS[i] || `SYM${String(i + 1).padStart(3, '0')}`;
-    const sectorKey = SECTOR_KEYS[i % SECTOR_KEYS.length];
+    const ticker = tickers[i];
+    const sectorKey = getSectorForTicker(ticker, i);
     const sector = SECTORS[sectorKey];
     const rng = createRNG(tickerSeed(ticker, i));
 
+    const referencePrice = getReferencePrice(ticker);
     const [pMin, pMax] = sector.basePrice;
-    let anchorPrice = pMin + rng() * (pMax - pMin);
+    let anchorPrice = referencePrice ?? pMin + rng() * (pMax - pMin);
+    const meanRevStrength = referencePrice != null ? 0.5 : sector.meanRev;
     let currentPrice = anchorPrice;
-    let rollingVol = sector.baseVol;
+    let rollingVol = referencePrice != null ? sector.baseVol * 0.25 : sector.baseVol;
 
     const history = [];
 
     for (let d = 0; d < HISTORY_DAYS; d++) {
       const deviation = (currentPrice - anchorPrice) / anchorPrice;
-      const meanRevForce = -deviation * sector.meanRev;
+      const meanRevForce = -deviation * meanRevStrength;
       const marketShock = gaussianRandom(rng) * rollingVol * sector.beta;
 
       const dailyReturn = meanRevForce + marketShock;
@@ -60,7 +83,17 @@ export function generateSP500Universe(count = 500) {
       });
 
       currentPrice = close;
-      if (d % 40 === 0) anchorPrice = anchorPrice * (1 + (rng() - 0.48) * 0.05);
+      if (referencePrice != null) {
+        anchorPrice = referencePrice;
+      } else if (d % 40 === 0) {
+        anchorPrice = anchorPrice * (1 + (rng() - 0.48) * 0.05);
+      }
+    }
+
+    // Keep market price near realistic reference (±2%) without tying it to user buy price
+    if (referencePrice != null) {
+      const wiggle = (rng() - 0.5) * 0.04;
+      scaleHistoryToTarget(history, round2(referencePrice * (1 + wiggle)));
     }
 
     stocks.push({

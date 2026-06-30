@@ -1,17 +1,50 @@
 /** Portfolio audit and exit recommendation engine */
 
 import { CONSENSUS_THRESHOLDS, PORTFOLIO_RULES } from '../config/constants.js';
+import { getReferencePrice } from '../config/referencePrices.js';
+import { stockToScanResult } from './scanEngine.js';
+
+/**
+ * @param {import('../types.js').Stock[]} stockUniverse
+ * @returns {Map<string, import('../types.js').Stock>}
+ */
+function buildStockLookup(stockUniverse) {
+  const map = new Map();
+  for (const stock of stockUniverse) {
+    const key = stock.ticker.toUpperCase();
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, stock);
+      continue;
+    }
+    if (getReferencePrice(stock.ticker) != null && getReferencePrice(existing.ticker) == null) {
+      map.set(key, stock);
+    }
+  }
+  return map;
+}
+
+/**
+ * Resolve market price: universe stock is authoritative; never fall back to buy price when stock exists.
+ * @param {import('../types.js').Position} position
+ * @param {import('../types.js').ScanResult|null} scanResult
+ * @param {import('../types.js').Stock|null} [stock]
+ */
+export function resolveMarketPrice(position, scanResult, stock = null) {
+  if (stock) return stock.currentPrice;
+  if (scanResult?.price != null) return scanResult.price;
+  if (position.lastKnownPrice != null) return position.lastKnownPrice;
+  return position.buyPrice;
+}
 
 /**
  * @param {import('../types.js').Position} position
  * @param {import('../types.js').ScanResult|null} scanResult
+ * @param {import('../types.js').Stock|null} [stock]
  * @returns {import('../types.js').PortfolioAudit}
  */
-export function auditPosition(position, scanResult) {
-  const marketPrice = scanResult
-    ? scanResult.price
-    : position.lastKnownPrice || position.buyPrice;
-
+export function auditPosition(position, scanResult, stock = null) {
+  const marketPrice = resolveMarketPrice(position, scanResult, stock);
   const returnPct = ((marketPrice - position.buyPrice) / position.buyPrice) * 100;
   const score = scanResult ? scanResult.score : 0;
   const classification = scanResult ? scanResult.classification : 'HOLD';
@@ -46,16 +79,26 @@ export function auditPosition(position, scanResult) {
 /**
  * @param {import('../types.js').Position[]} positions
  * @param {import('../types.js').ScanResult[]} scanResults
- * @returns {Promise<Array<{position: import('../types.js').Position, audit: import('../types.js').PortfolioAudit, scanResult: import('../types.js').ScanResult|null}>>}
+ * @param {import('../types.js').Stock[]} stockUniverse
+ * @param {import('../types.js').StrategyEngine[]} [activeStrategies]
  */
-export function runPortfolioAudit(positions, scanResults) {
+export function runPortfolioAudit(positions, scanResults, stockUniverse, activeStrategies = []) {
   const resultMap = new Map(scanResults.map((r) => [r.ticker.toUpperCase(), r]));
+  const stockMap = buildStockLookup(stockUniverse);
 
   return new Promise((resolve) => {
     setTimeout(() => {
       const audits = positions.map((pos) => {
-        const scanResult = resultMap.get(pos.ticker.toUpperCase()) ?? null;
-        const audit = auditPosition(pos, scanResult);
+        const key = pos.ticker.toUpperCase();
+        const stock = stockMap.get(key) ?? null;
+        let scanResult = resultMap.get(key) ?? null;
+
+        // Portfolio tickers outside the last scan slice still get live consensus + correct price
+        if (!scanResult && stock && activeStrategies.length > 0) {
+          scanResult = stockToScanResult(stock, activeStrategies);
+        }
+
+        const audit = auditPosition(pos, scanResult, stock);
         pos.lastKnownPrice = audit.marketPrice;
         return { position: pos, audit, scanResult };
       });

@@ -39,22 +39,30 @@ export function computeConsensus(stock, activeStrategies) {
 }
 
 /**
+ * Build a scan result row for a single stock (used when portfolio ticker was outside last scan slice).
+ * @param {import('../types.js').Stock} stock
+ * @param {import('../types.js').StrategyEngine[]} activeStrategies
+ * @returns {import('../types.js').ScanResult}
+ */
+export function stockToScanResult(stock, activeStrategies) {
+  const consensus = computeConsensus(stock, activeStrategies);
+  return {
+    ticker: stock.ticker,
+    name: stock.name,
+    sector: stock.sector,
+    price: stock.currentPrice,
+    history: stock.history,
+    ...consensus,
+  };
+}
+
+/**
  * @param {import('../types.js').Stock[]} stocks
  * @param {import('../types.js').StrategyEngine[]} activeStrategies
  * @returns {import('../types.js').ScanResult[]}
  */
 export function scanUniverse(stocks, activeStrategies) {
-  return stocks.map((stock) => {
-    const consensus = computeConsensus(stock, activeStrategies);
-    return {
-      ticker: stock.ticker,
-      name: stock.name,
-      sector: stock.sector,
-      price: stock.currentPrice,
-      history: stock.history,
-      ...consensus,
-    };
-  });
+  return stocks.map((stock) => stockToScanResult(stock, activeStrategies));
 }
 
 /**

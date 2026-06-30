@@ -44,13 +44,35 @@ export const renderer = {
     document.getElementById('lastScanTime').textContent = time;
   },
 
-  setScanning(active) {
+  setDataSource(source, quoteTime) {
+    const el = document.getElementById('dataSource');
+    const labels = {
+      live: 'Live (Yahoo)',
+      mixed: 'Live + Synthetic',
+      synthetic: 'Synthetic',
+    };
+    el.textContent = labels[source] || source;
+    el.className =
+      source === 'live'
+        ? 'text-emerald-400 font-semibold'
+        : source === 'mixed'
+          ? 'text-amber-400 font-semibold'
+          : 'text-slate-400 font-semibold';
+
+    const qt = document.getElementById('quoteTime');
+    if (quoteTime) {
+      qt.textContent = new Date(quoteTime).toLocaleTimeString();
+    }
+  },
+
+  setScanning(active, message = 'Working…') {
     const btn = document.getElementById('btnScan');
     const indicator = document.getElementById('scanIndicator');
     btn.disabled = active;
     btn.classList.toggle('opacity-60', active);
     btn.classList.toggle('cursor-not-allowed', active);
     indicator.classList.toggle('hidden', !active);
+    if (active) indicator.textContent = message;
   },
 
   /**

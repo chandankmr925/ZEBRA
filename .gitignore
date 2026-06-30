@@ -4,3 +4,5 @@ dist/
 *.local
 .env
 .env.*
+data/portfolio.json
+data/market-cache/

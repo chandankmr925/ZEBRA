@@ -1,6 +1,6 @@
 # S&P 500 Algorithmic Trading Screener & Portfolio Auditor
 
-Enterprise-grade dashboard for screening S&P 500 equities with pluggable technical strategies, weighted consensus scoring, and portfolio exit auditing. Uses **synthetic market data** — no API keys required.
+Enterprise-grade dashboard for screening S&P 500 equities with pluggable technical strategies, weighted consensus scoring, and portfolio exit auditing. Uses **live market data** (Yahoo Finance via server proxy) with synthetic fallback — no API key required.
 
 ## Quick Start
 
@@ -11,14 +11,55 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). The dev server starts automatically.
 
-### Production build
+**Important:** Run the app via `npm run dev` or `npm start` — do not open `index.html` directly from the file explorer. Portfolio data is saved to disk through the local API.
+
+### Production
 
 ```bash
 npm run build
-npm run preview
+npm run start
 ```
 
-Static assets are emitted to `dist/` and can be deployed to any static host (S3, Netlify, nginx, etc.).
+Opens at [http://localhost:4173](http://localhost:4173) with portfolio API enabled.
+
+### Portfolio persistence (on disk)
+
+Your portfolio ledger is saved to:
+
+```
+data/portfolio.json
+```
+
+Every add, update, or remove writes to this file immediately. Reloading the browser loads from this file — data survives refresh, browser restart, and syncs via OneDrive if the project folder is on OneDrive.
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-06-30T12:00:00.000Z",
+  "positions": [
+    { "ticker": "AAPL", "buyPrice": 170, "addedAt": "..." }
+  ]
+}
+```
+
+`data/portfolio.json` is gitignored (personal data). The `data/` folder is kept in the repo via `.gitkeep`.
+
+### Live market prices
+
+Market prices and OHLCV history are fetched from **Yahoo Finance** through a local server proxy:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/market/quotes?tickers=AAPL,NVDA` | Live prices (1 min cache) |
+| `GET /api/market/history?ticker=NVDA` | 1-year daily OHLCV |
+| `POST /api/market/universe` | Batch load for scans |
+
+- **Portfolio ledger** refreshes live quotes on load and after changes.
+- **Bulk scan** downloads real history for each ticker (cached 15 min in `data/market-cache/`).
+- Header shows **Data: Live (Yahoo)** when connected.
+- Scanning 500 tickers can take several minutes; start with 50–100 for faster results.
+
+No API key needed. Requires `npm run dev` or `npm start` (not `file://`).
 
 ## Project Structure
 
