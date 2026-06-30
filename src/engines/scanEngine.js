@@ -1,17 +1,20 @@
 /** Weighted consensus scanning engine */
 
 import { CONSENSUS_THRESHOLDS, SIGNAL_MAP } from '../config/constants.js';
+import { getMarketConfig } from '../config/markets.js';
 import { calculateRSI, calculateROC, getCloses } from '../utils/technical.js';
 import { enrichWithAIRecommendations, generateRecommendation } from './aiRecommender.js';
 
 /**
  * @param {import('../types.js').Stock[]} stocks
+ * @param {string} [marketId='US']
  */
-function buildScanContext(stocks) {
+function buildScanContext(stocks, marketId = 'US') {
   /** @type {Record<string, number[]>} */
   const sectorRocs = {};
 
   for (const stock of stocks) {
+    if (stock.ticker.startsWith('^')) continue;
     const roc = calculateROC(getCloses(stock.history), 20);
     if (roc === null) continue;
     if (!sectorRocs[stock.sector]) sectorRocs[stock.sector] = [];
@@ -27,11 +30,14 @@ function buildScanContext(stocks) {
       sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   }
 
-  const spy = stocks.find((s) => s.ticker === 'SPY');
+  const benchmarkTicker = getMarketConfig(marketId).benchmark;
+  const benchmark = stocks.find((s) => s.ticker === benchmarkTicker);
 
   return {
     sectorRocMedians,
-    spyHistory: spy?.history ?? null,
+    spyHistory: benchmark?.history ?? null,
+    benchmarkHistory: benchmark?.history ?? null,
+    benchmarkTicker,
   };
 }
 
@@ -97,11 +103,13 @@ export function stockToScanResult(stock, activeStrategies, scanContext = {}) {
 /**
  * @param {import('../types.js').Stock[]} stocks
  * @param {import('../types.js').StrategyEngine[]} activeStrategies
+ * @param {string} [marketId='US']
  * @returns {import('../types.js').ScanResult[]}
  */
-export function scanUniverse(stocks, activeStrategies) {
-  const scanContext = buildScanContext(stocks);
-  const results = stocks.map((stock) => stockToScanResult(stock, activeStrategies, scanContext));
+export function scanUniverse(stocks, activeStrategies, marketId = 'US') {
+  const scanContext = buildScanContext(stocks, marketId);
+  const scannable = stocks.filter((s) => !s.ticker.startsWith('^'));
+  const results = scannable.map((stock) => stockToScanResult(stock, activeStrategies, scanContext));
   return enrichWithAIRecommendations(results);
 }
 
@@ -112,9 +120,9 @@ export function scanUniverse(stocks, activeStrategies) {
  * @param {import('../types.js').Stock[]} [universeForContext]
  * @returns {import('../types.js').ScanResult}
  */
-export function scanSingleStock(stock, activeStrategies, universeForContext = []) {
+export function scanSingleStock(stock, activeStrategies, universeForContext = [], marketId = 'US') {
   const contextPool = universeForContext.length > 0 ? universeForContext : [stock];
-  const scanContext = buildScanContext(contextPool);
+  const scanContext = buildScanContext(contextPool, marketId);
   return stockToScanResult(stock, activeStrategies, scanContext);
 }
 

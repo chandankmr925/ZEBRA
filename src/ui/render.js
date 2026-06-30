@@ -1,6 +1,11 @@
 /** DOM rendering helpers */
 
+import { MARKETS } from '../config/markets.js';
 import { mapPortfolioConsensus } from '../engines/scanEngine.js';
+import { formatMoney } from '../utils/format.js';
+
+/** @type {string} */
+let activeMarketId = 'US';
 
 function badgeClass(signal) {
   if (signal === 'BUY') return 'text-emerald-400 bg-emerald-900/40 border-emerald-700';
@@ -75,7 +80,7 @@ function renderDeskRow(r, index, scoreClass, options = {}) {
         ${explainBtn(r.ticker)}
       </td>
       <td class="px-4 py-3 text-slate-400 text-xs">${r.sector}</td>
-      <td class="px-4 py-3 font-mono text-sm">$${r.price.toFixed(2)}</td>
+      <td class="px-4 py-3 font-mono text-sm">${formatMoney(r.price, activeMarketId)}</td>
       ${options.extraColumn ?? ''}
       <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-semibold border ${badgeClass(signal)}">${signal}</span></td>
       <td class="px-4 py-3 font-mono ${rowScoreClass} font-semibold">${scorePrefix}${r.score.toFixed(3)}</td>
@@ -85,6 +90,185 @@ function renderDeskRow(r, index, scoreClass, options = {}) {
 }
 
 export const renderer = {
+  getActiveMarket() {
+    return activeMarketId;
+  },
+
+  /**
+   * @param {{ id: string, username: string, displayName: string }} user
+   */
+  setUser(user) {
+    const nameEl = document.getElementById('userDisplayName');
+    const metaEl = document.getElementById('userMeta');
+    const avatarEl = document.getElementById('userAvatar');
+    const display = user.displayName || user.username;
+    if (nameEl) nameEl.textContent = display;
+    if (metaEl) metaEl.textContent = `@${user.username}`;
+    if (avatarEl) avatarEl.textContent = display.charAt(0).toUpperCase();
+  },
+
+  /**
+   * @param {string} marketId
+   */
+  setActiveMarket(marketId) {
+    activeMarketId = marketId;
+    const config = MARKETS[marketId] ?? MARKETS.US;
+    const theme = config.theme;
+
+    document.body.classList.remove('market-us', 'market-in');
+    document.body.classList.add(theme.bodyClass);
+
+    const titleEl = document.getElementById('appTitle');
+    const subtitleEl = document.getElementById('appSubtitle');
+    const logoEl = document.getElementById('appLogo');
+    const footerEl = document.getElementById('appFooter');
+    const scanInput = document.getElementById('inputTotalStocks');
+    const buyPriceLabel = document.getElementById('labelBuyPrice');
+    const tickerInput = document.getElementById('inputTicker');
+    const explainInput = document.getElementById('inputExplainTicker');
+    const btnScan = document.getElementById('btnScan');
+    const banner = document.getElementById('dashboardBanner');
+    const dashboardTitle = document.getElementById('dashboardTitle');
+    const dashboardMeta = document.getElementById('dashboardMeta');
+    const dashboardBadge = document.getElementById('dashboardBadge');
+    const scanSectionTitle = document.getElementById('scanSectionTitle');
+    const portfolioSectionTitle = document.getElementById('portfolioSectionTitle');
+    const pnlHeaders = document.querySelectorAll('#labelPnlAmount');
+    const universeCount = document.getElementById('universeCount');
+
+    if (titleEl) titleEl.textContent = 'ZEBRA';
+    if (subtitleEl) subtitleEl.textContent = `${config.dashboardTitle} · ${config.exchange}`;
+    if (logoEl) {
+      logoEl.textContent = marketId === 'IN' ? 'IN' : 'US';
+      logoEl.className = `w-10 h-10 rounded-lg bg-gradient-to-br ${theme.logoGradient} flex items-center justify-center font-bold text-white text-sm shadow-lg ${theme.logoShadow}`;
+    }
+    if (footerEl) {
+      footerEl.textContent = `ZEBRA v1.2 — ${config.dashboardTitle} via Yahoo Finance. Not financial advice.`;
+    }
+    if (scanInput) {
+      scanInput.max = String(config.maxUniverse);
+      if (!scanInput.matches(':focus')) {
+        scanInput.value = String(config.defaultScanSize);
+      }
+    }
+    if (buyPriceLabel) {
+      buyPriceLabel.textContent = `Buy Price (${config.currencySymbol})`;
+    }
+    if (tickerInput) {
+      tickerInput.placeholder = marketId === 'IN' ? 'RELIANCE' : 'AAPL';
+    }
+    if (explainInput) {
+      explainInput.placeholder = marketId === 'IN' ? 'TCS' : 'NVDA';
+    }
+    if (btnScan) {
+      btnScan.className = `w-full bg-gradient-to-r ${theme.scanButton} text-white font-semibold py-2.5 px-4 rounded-lg shadow-lg transition-all active:scale-[0.98] text-sm`;
+      btnScan.textContent = marketId === 'IN' ? 'Scan NSE 200 Universe' : 'Scan S&P 500 Universe';
+    }
+    if (banner) {
+      banner.className = `rounded-xl border px-5 py-4 bg-gradient-to-r ${theme.bannerBg} ${theme.bannerBorder}`;
+    }
+    if (dashboardTitle) dashboardTitle.textContent = config.dashboardTitle;
+    if (dashboardMeta) {
+      dashboardMeta.textContent = `${config.exchange} · up to ${config.maxUniverse} stocks · Benchmark ${config.benchmark} · ${config.currency}`;
+    }
+    if (dashboardBadge) {
+      dashboardBadge.textContent = marketId === 'IN' ? 'India · NSE' : 'United States';
+      dashboardBadge.className = `px-3 py-1 rounded-full text-xs font-semibold border ${
+        marketId === 'IN'
+          ? 'bg-orange-900/40 text-orange-300 border-orange-700'
+          : 'bg-blue-900/40 text-blue-300 border-blue-700'
+      }`;
+    }
+    if (scanSectionTitle) {
+      const icon = scanSectionTitle.querySelector('svg');
+      scanSectionTitle.replaceChildren();
+      if (icon) scanSectionTitle.appendChild(icon);
+      scanSectionTitle.append(` ${config.shortLabel} Scan Control`);
+    }
+    if (portfolioSectionTitle) {
+      const icon = portfolioSectionTitle.querySelector('svg');
+      portfolioSectionTitle.replaceChildren();
+      if (icon) portfolioSectionTitle.appendChild(icon);
+      portfolioSectionTitle.append(` ${config.shortLabel} Portfolio`);
+    }
+    pnlHeaders.forEach((el) => {
+      el.textContent = `P&L ${config.currencySymbol}`;
+    });
+    if (universeCount) {
+      universeCount.className = `font-semibold ${theme.accentText}`;
+    }
+
+    document.title = `ZEBRA — ${config.dashboardTitle}`;
+
+    const selector = document.getElementById('selectMarket');
+    if (selector && selector.value !== marketId) {
+      selector.value = marketId;
+    }
+
+    this.updateDashboardTabs(marketId);
+  },
+
+  /**
+   * @param {string} activeId
+   */
+  updateDashboardTabs(activeId) {
+    document.querySelectorAll('[data-market-tab]').forEach((btn) => {
+      const id = btn.getAttribute('data-market-tab');
+      const isActive = id === activeId;
+      const config = MARKETS[id] ?? MARKETS.US;
+      if (isActive) {
+        btn.className =
+          id === 'IN'
+            ? 'dashboard-tab px-4 py-2 rounded-md text-sm font-semibold transition-all bg-orange-600 text-white shadow-md shadow-orange-900/30'
+            : 'dashboard-tab px-4 py-2 rounded-md text-sm font-semibold transition-all bg-blue-600 text-white shadow-md shadow-blue-900/30';
+      } else {
+        btn.className =
+          'dashboard-tab px-4 py-2 rounded-md text-sm font-semibold transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-700/50';
+      }
+      btn.setAttribute('aria-current', isActive ? 'page' : 'false');
+      btn.textContent = config.shortLabel;
+    });
+  },
+
+  /**
+   * @param {(marketId: string) => void} onChange
+   */
+  populateMarketSelector(onChange) {
+    const selector = document.getElementById('selectMarket');
+    if (selector) {
+      selector.innerHTML = Object.values(MARKETS)
+        .map((m) => `<option value="${m.id}">${m.dashboardTitle}</option>`)
+        .join('');
+      selector.value = activeMarketId;
+      selector.addEventListener('change', () => onChange(selector.value));
+    }
+
+    document.querySelectorAll('[data-market-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-market-tab');
+        if (id) onChange(id);
+      });
+    });
+  },
+
+  /**
+   * @param {{ totalStocks?: number, topBuys?: number, strategies?: Record<string, boolean> }|null} config
+   */
+  applyScanConfig(config) {
+    if (!config) return;
+    const totalEl = document.getElementById('inputTotalStocks');
+    const topEl = document.getElementById('inputTopBuys');
+    if (totalEl && config.totalStocks) totalEl.value = String(config.totalStocks);
+    if (topEl && config.topBuys) topEl.value = String(config.topBuys);
+    if (config.strategies) {
+      document.querySelectorAll('[data-strategy-id]').forEach((el) => {
+        if (el instanceof HTMLInputElement && el.dataset.strategyId) {
+          el.checked = config.strategies[el.dataset.strategyId] !== false;
+        }
+      });
+    }
+  },
+
   setUniverseCount(count) {
     document.getElementById('universeCount').textContent = String(count);
   },
@@ -171,12 +355,13 @@ export const renderer = {
         const pnlClass = r.returnPct >= 0 ? 'text-emerald-400' : 'text-red-400';
         const pnlSign = r.returnPct >= 0 ? '+' : '';
         const pnlDollars = r.audit?.pnlDollars ?? 0;
+        const pnlPrefix = pnlDollars >= 0 ? '+' : '−';
         const aiAdvice = r.portfolioAi?.advice ?? r.displayClassification;
         const qty = r.audit?.quantity ?? r.position?.quantity ?? 1;
         return renderDeskRow(r, i, 'text-amber-400', {
           signalOverride: r.displayClassification,
           aiOverride: aiAdvice,
-          extraColumn: `<td class="px-4 py-3 font-mono text-sm">${qty}</td><td class="px-4 py-3 font-mono font-semibold text-sm ${pnlClass}">${dollarSign}$${Math.abs(pnlDollars).toFixed(2)}</td><td class="px-4 py-3 font-mono font-semibold text-sm ${pnlClass}">${pnlSign}${r.returnPct.toFixed(2)}%</td>`,
+          extraColumn: `<td class="px-4 py-3 font-mono text-sm">${qty}</td><td class="px-4 py-3 font-mono font-semibold text-sm ${pnlClass}">${pnlPrefix}${formatMoney(Math.abs(pnlDollars), activeMarketId)}</td><td class="px-4 py-3 font-mono font-semibold text-sm ${pnlClass}">${pnlSign}${r.returnPct.toFixed(2)}%</td>`,
         });
       })
       .join('');
@@ -244,7 +429,7 @@ export const renderer = {
             <div class="flex items-center gap-2">
               <span class="text-lg font-bold text-white">${r.ticker}</span>
               <span class="text-xs text-slate-500">${r.sector}</span>
-              <span class="font-mono text-sm text-slate-300">$${r.price.toFixed(2)}</span>
+              <span class="font-mono text-sm text-slate-300">${formatMoney(r.price, activeMarketId)}</span>
               ${explainBtn(r.ticker, true)}
             </div>
             <div class="mt-1">${formatAIRec(ai)} <span class="text-xs text-slate-500 ml-2">AI score ${ai.aiScore >= 0 ? '+' : ''}${ai.aiScore.toFixed(3)}</span></div>
@@ -291,7 +476,7 @@ export const renderer = {
 
         const pnlClass = audit.returnPct >= 0 ? 'text-emerald-400' : 'text-red-400';
         const pnlSign = audit.returnPct >= 0 ? '+' : '';
-        const dollarSign = audit.pnlDollars >= 0 ? '+' : '';
+        const pnlPrefix = audit.pnlDollars >= 0 ? '+' : '−';
         const rrDisplay = audit.riskReward != null ? audit.riskReward.toFixed(2) : '—';
         const aiAdvice = portfolioAi?.advice ?? '—';
         const aiTitle = portfolioAi?.summary ?? '';
@@ -305,11 +490,11 @@ export const renderer = {
         ${explainBtn(position.ticker)}
       </td>
       <td class="px-4 py-3 font-mono text-sm">${qty}</td>
-      <td class="px-4 py-3 font-mono text-sm">$${position.buyPrice.toFixed(2)}</td>
-      <td class="px-4 py-3 font-mono text-sm text-slate-300">$${audit.costBasis.toFixed(2)}</td>
-      <td class="px-4 py-3 font-mono text-sm">$${audit.marketPrice.toFixed(2)}</td>
-      <td class="px-4 py-3 font-mono text-sm text-slate-300">$${audit.marketValue.toFixed(2)}</td>
-      <td class="px-4 py-3 font-mono font-semibold ${pnlClass}">${dollarSign}$${Math.abs(audit.pnlDollars).toFixed(2)}</td>
+      <td class="px-4 py-3 font-mono text-sm">${formatMoney(position.buyPrice, activeMarketId)}</td>
+      <td class="px-4 py-3 font-mono text-sm text-slate-300">${formatMoney(audit.costBasis, activeMarketId)}</td>
+      <td class="px-4 py-3 font-mono text-sm">${formatMoney(audit.marketPrice, activeMarketId)}</td>
+      <td class="px-4 py-3 font-mono text-sm text-slate-300">${formatMoney(audit.marketValue, activeMarketId)}</td>
+      <td class="px-4 py-3 font-mono font-semibold ${pnlClass}">${pnlPrefix}${formatMoney(Math.abs(audit.pnlDollars), activeMarketId)}</td>
       <td class="px-4 py-3 font-mono font-semibold ${pnlClass}">${pnlSign}${audit.returnPct.toFixed(2)}%</td>
       <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-semibold border ${badgeClass(displayConsensus)}">${displayConsensus}</span></td>
       <td class="px-4 py-3 font-mono text-sm">${audit.score.toFixed(3)}</td>
@@ -333,10 +518,10 @@ export const renderer = {
       `
     <tr class="bg-slate-850/80 border-t border-slate-700 font-semibold">
       <td class="px-4 py-3 text-slate-300" colspan="3">Portfolio total</td>
-      <td class="px-4 py-3 font-mono text-sm">$${totalCost.toFixed(2)}</td>
+      <td class="px-4 py-3 font-mono text-sm">${formatMoney(totalCost, activeMarketId)}</td>
       <td class="px-4 py-3"></td>
-      <td class="px-4 py-3 font-mono text-sm">$${totalValue.toFixed(2)}</td>
-      <td class="px-4 py-3 font-mono ${totalPnlClass}">${totalPnlSign}$${Math.abs(totalPnl).toFixed(2)}</td>
+      <td class="px-4 py-3 font-mono text-sm">${formatMoney(totalValue, activeMarketId)}</td>
+      <td class="px-4 py-3 font-mono ${totalPnlClass}">${totalPnlSign}${formatMoney(Math.abs(totalPnl), activeMarketId)}</td>
       <td class="px-4 py-3 font-mono ${totalPnlClass}">${totalPnlSign}${totalPct.toFixed(2)}%</td>
       <td class="px-4 py-3" colspan="6"></td>
     </tr>`;
@@ -499,7 +684,7 @@ export const renderer = {
 
     if (title) title.textContent = `${explanation.ticker} — ${explanation.name}`;
     if (subtitle) {
-      subtitle.textContent = `${explanation.sector} · $${explanation.price.toFixed(2)} · ${src}`;
+      subtitle.textContent = `${explanation.sector} · ${formatMoney(explanation.price, activeMarketId)} · ${src}`;
     }
 
     const categoryRows = (explanation.categoryBreakdown ?? [])

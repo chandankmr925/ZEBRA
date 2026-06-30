@@ -1,6 +1,6 @@
 /** Application controller — wires UI events to engines and store */
 
-import { MAX_UNIVERSE_SIZE } from '../config/constants.js';
+import { getMarketConfig } from '../config/markets.js';
 import { fetchStockHistory } from '../data/marketClient.js';
 import { auditPosition, runPortfolioAudit } from '../engines/portfolioAudit.js';
 import { getTopAIRecommendations, explainTickerDeepDive, recommendPortfolioPosition } from '../engines/aiRecommender.js';
@@ -14,8 +14,13 @@ import {
 import { fetchAIRecommendations, fetchExplainTicker } from '../data/recommendClient.js';
 import { getActiveStrategies, strategyRegistry } from '../strategies/index.js';
 import { store } from '../state/store.js';
+import { formatMoney } from '../utils/format.js';
 import { clamp } from '../utils/math.js';
 import { renderer } from './render.js';
+import { signOut } from './authGate.js';
+
+/** @type {import('../data/authClient.js').AuthUser|null} */
+let currentUser = null;
 
 function updateStatusBar() {
   renderer.setUniverseCount(store.stockUniverse.length);
@@ -74,9 +79,43 @@ async function refreshPortfolio() {
   renderer.renderPortfolioSignalDesk(buildPortfolioSignalDesk(preScanAudits));
 }
 
+async function restoreDashboard() {
+  const config = store.scanConfig;
+  if (config) {
+    renderer.applyScanConfig(config);
+  } else {
+    renderer.applyScanConfig({
+      totalStocks: getMarketConfig(store.activeMarket).defaultScanSize,
+      topBuys: 15,
+    });
+  }
+
+  updateStatusBar();
+  renderer.setLastScanTime(store.lastScanTime ?? 'Never');
+
+  const buyCache = store.buyDeskCache;
+  if (buyCache) {
+    renderer.renderBuyDesk(buyCache.buys, buyCache.totalBuyCount);
+  } else {
+    renderer.renderBuyDesk([], 0);
+  }
+
+  const aiCache = store.aiDeskCache;
+  if (aiCache) {
+    renderer.renderAIDesk(aiCache.aiPicks, aiCache.aiResponse);
+  } else {
+    renderer.renderAIDesk([], null);
+  }
+
+  renderer.clearPositionInputs();
+  await refreshPortfolio();
+}
+
 async function executeBulkScan() {
   const config = renderer.getScanConfig();
-  const totalStocks = clamp(config.totalStocks, 10, MAX_UNIVERSE_SIZE);
+  store.setScanConfig(config);
+  const marketConfig = getMarketConfig(store.activeMarket);
+  const totalStocks = clamp(config.totalStocks, 10, marketConfig.maxUniverse);
   const topBuys = clamp(config.topBuys, 1, 100);
   const activeStrategies = getActiveStrategies(config.strategies);
 
@@ -103,7 +142,8 @@ async function executeBulkScan() {
     const universe = store.getUniverse();
     await store.refreshPortfolioQuotes();
 
-    const results = scanUniverse(universe.slice(0, totalStocks), activeStrategies);
+    const scannable = universe.filter((s) => !s.ticker.startsWith('^')).slice(0, totalStocks);
+    const results = scanUniverse(scannable, activeStrategies, store.activeMarket);
     store.setScanResults(results, activeStrategies);
 
     const buys = getTopBuyCandidates(results, topBuys);
@@ -113,8 +153,10 @@ async function executeBulkScan() {
     renderer.setScanning(true, 'Generating AI recommendations…');
     const aiResponse = await fetchAIRecommendations(results, 10);
     renderer.renderAIDesk(aiPicks, aiResponse);
+    store.setAIDeskCache(aiPicks, aiResponse);
 
     renderer.renderBuyDesk(buys, totalBuyCount);
+    store.setBuyDeskCache(buys, totalBuyCount);
 
     const audits = attachPortfolioAI(
       await runPortfolioAudit(store.myPositions, results, universe, activeStrategies)
@@ -122,7 +164,9 @@ async function executeBulkScan() {
     renderer.renderPortfolio(audits, handleRemovePosition);
     renderer.renderPortfolioSignalDesk(buildPortfolioSignalDesk(audits));
 
-    renderer.setLastScanTime(new Date().toLocaleTimeString());
+    const scanTime = new Date().toLocaleTimeString();
+    renderer.setLastScanTime(scanTime);
+    store.setLastScanTime(scanTime);
     renderer.setPortfolioMessage(
       `Scan complete — ${loaded} live tickers loaded${failed.length ? `, ${failed.length} fallback` : ''}.`,
       'success'
@@ -156,7 +200,7 @@ async function handleAddPosition() {
   if (!stock) {
     try {
       renderer.setScanning(true, 'Fetching live quote…');
-      stock = await fetchStockHistory(ticker);
+      stock = await fetchStockHistory(ticker, store.activeMarket);
       const universe = store.getUniverse();
       universe.push(stock);
       store.setUniverse(universe, 'mixed');
@@ -177,8 +221,8 @@ async function handleAddPosition() {
   const costBasis = buyPrice * quantity;
   renderer.setPortfolioMessage(
     updated
-      ? `Updated ${ticker}: ${quantity} @ $${buyPrice.toFixed(2)} (cost basis $${costBasis.toFixed(2)}).`
-      : `Added ${quantity} ${ticker} @ $${buyPrice.toFixed(2)} — cost basis $${costBasis.toFixed(2)} (live: $${stock.currentPrice.toFixed(2)}/sh).`,
+      ? `Updated ${ticker}: ${quantity} @ ${formatMoney(buyPrice, store.activeMarket)} (cost basis ${formatMoney(costBasis, store.activeMarket)}).`
+      : `Added ${quantity} ${ticker} @ ${formatMoney(buyPrice, store.activeMarket)} — cost basis ${formatMoney(costBasis, store.activeMarket)} (live: ${formatMoney(stock.currentPrice, store.activeMarket)}/sh).`,
     'success'
   );
   renderer.clearPositionInputs();
@@ -253,14 +297,14 @@ async function handleExplainTicker(ticker) {
       let stock = store.findStock(normalized);
       if (!stock) {
         renderer.setScanning(true, `Fetching ${normalized}…`);
-        stock = await fetchStockHistory(normalized);
+        stock = await fetchStockHistory(normalized, store.activeMarket);
         const universe = store.getUniverse();
         universe.push(stock);
         store.setUniverse(universe, 'mixed');
         updateStatusBar();
         renderer.setScanning(false);
       }
-      scanResult = scanSingleStock(stock, strategies, store.getUniverse());
+      scanResult = scanSingleStock(stock, strategies, store.getUniverse(), store.activeMarket);
     }
 
     const position = store.myPositions.find((p) => p.ticker.toUpperCase() === normalized);
@@ -311,10 +355,34 @@ async function handleExplainTicker(ticker) {
   }
 }
 
+async function handleMarketChange(marketId) {
+  store.setActiveMarket(marketId);
+  renderer.setActiveMarket(marketId);
+  store.getUniverse();
+  renderer.setPortfolioMessage(
+    `Viewing ${getMarketConfig(marketId).dashboardTitle}. Each dashboard keeps its own scan results and portfolio.`,
+    'neutral'
+  );
+  await restoreDashboard();
+}
+
+async function handleLogout() {
+  renderer.clearPositionInputs();
+  await signOut(() => {
+    currentUser = null;
+    store.setCurrentUser(null);
+  });
+}
+
+let eventsBound = false;
+
 function bindEvents() {
+  if (eventsBound) return;
+  eventsBound = true;
   document.getElementById('btnScan').addEventListener('click', executeBulkScan);
   document.getElementById('btnAddPosition').addEventListener('click', handleAddPosition);
   document.getElementById('btnCancelEdit').addEventListener('click', handleCancelEdit);
+  document.getElementById('btnLogout')?.addEventListener('click', handleLogout);
   document.getElementById('btnExplainTicker').addEventListener('click', () => {
     handleExplainTicker(renderer.getExplainTickerInput());
   });
@@ -361,11 +429,17 @@ function bindEvents() {
   document.getElementById('inputQuantity').addEventListener('keydown', onEnter);
 }
 
-export async function initApp() {
+/**
+ * @param {import('../data/authClient.js').AuthUser} user
+ */
+export async function initApp(user) {
+  currentUser = user;
+  renderer.setUser(user);
+  renderer.setActiveMarket(store.activeMarket);
+  renderer.populateMarketSelector(handleMarketChange);
   store.getUniverse();
   renderer.populateStrategyCheckboxes(strategyRegistry);
   await store.initPortfolio();
-  updateStatusBar();
   bindEvents();
-  await refreshPortfolio();
+  await restoreDashboard();
 }

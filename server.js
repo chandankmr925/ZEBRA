@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { handleAuthApi } from './server/authApi.js';
 import { handlePortfolioApi } from './server/portfolioApi.js';
 import { handleMarketApi } from './server/marketApi.js';
 import { handleRecommendApi } from './server/recommendApi.js';
@@ -57,6 +58,10 @@ async function serveStatic(req, res) {
 }
 
 const server = createServer((req, res) => {
+  if (req.url?.startsWith('/api/auth')) {
+    handleAuthApi(req, res);
+    return;
+  }
   if (req.url?.startsWith('/api/portfolio')) {
     handlePortfolioApi(req, res);
     return;
@@ -78,5 +83,5 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`S&P 500 Screener running at http://localhost:${PORT}`);
-  console.log(`Portfolio file: ${path.join(__dirname, 'data', 'portfolio.json')}`);
+  console.log(`User portfolios: ${path.join(__dirname, 'data', 'users')}`);
 });

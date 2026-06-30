@@ -6,3 +6,5 @@ dist/
 .env.*
 data/portfolio.json
 data/market-cache/
+data/users/
+data/sessions.json

@@ -1,6 +1,7 @@
 /** Map tickers to GICS-style sectors (overrides index-based assignment). */
 
 import { SECTOR_KEYS } from './sectors.js';
+import { INDIA_TICKER_SECTORS } from './indiaTickerSectors.js';
 
 export const TICKER_SECTORS = {
   AAPL: 'Technology',
@@ -40,8 +41,13 @@ export const TICKER_SECTORS = {
 /**
  * @param {string} ticker
  * @param {number} index
+ * @param {string} [marketId='US']
  * @returns {string}
  */
-export function getSectorForTicker(ticker, index) {
-  return TICKER_SECTORS[ticker] ?? SECTOR_KEYS[index % SECTOR_KEYS.length];
+export function getSectorForTicker(ticker, index, marketId = 'US') {
+  const key = ticker.toUpperCase();
+  if (marketId === 'IN') {
+    return INDIA_TICKER_SECTORS[key] ?? SECTOR_KEYS[index % SECTOR_KEYS.length];
+  }
+  return TICKER_SECTORS[key] ?? SECTOR_KEYS[index % SECTOR_KEYS.length];
 }

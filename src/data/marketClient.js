@@ -2,15 +2,17 @@
 
 /**
  * @param {string[]} tickers
+ * @param {string} [marketId='US']
  */
-export async function fetchLiveQuotes(tickers) {
+export async function fetchLiveQuotes(tickers, marketId = 'US') {
   if (tickers.length === 0) {
-    return { quotes: {}, failed: [], fetchedAt: new Date().toISOString() };
+    return { quotes: {}, failed: [], fetchedAt: new Date().toISOString(), market: marketId };
   }
 
-  const res = await fetch(`/api/market/quotes?tickers=${encodeURIComponent(tickers.join(','))}`, {
-    cache: 'no-store',
-  });
+  const res = await fetch(
+    `/api/market/quotes?tickers=${encodeURIComponent(tickers.join(','))}&market=${encodeURIComponent(marketId)}`,
+    { cache: 'no-store' }
+  );
 
   if (!res.ok) {
     throw new Error(`Quote fetch failed: HTTP ${res.status}`);
@@ -22,12 +24,13 @@ export async function fetchLiveQuotes(tickers) {
 /**
  * @param {string[]} tickers
  * @param {number} [concurrency=6]
+ * @param {string} [marketId='US']
  */
-export async function fetchUniverseStocks(tickers, concurrency = 6) {
+export async function fetchUniverseStocks(tickers, concurrency = 6, marketId = 'US') {
   const res = await fetch('/api/market/universe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tickers, concurrency }),
+    body: JSON.stringify({ tickers, concurrency, market: marketId }),
   });
 
   if (!res.ok) {
@@ -39,10 +42,11 @@ export async function fetchUniverseStocks(tickers, concurrency = 6) {
 
 /**
  * @param {string} ticker
+ * @param {string} [marketId='US']
  */
-export async function fetchStockHistory(ticker) {
+export async function fetchStockHistory(ticker, marketId = 'US') {
   const res = await fetch(
-    `/api/market/history?ticker=${encodeURIComponent(ticker.toUpperCase())}`,
+    `/api/market/history?ticker=${encodeURIComponent(ticker.toUpperCase())}&market=${encodeURIComponent(marketId)}`,
     { cache: 'no-store' }
   );
 

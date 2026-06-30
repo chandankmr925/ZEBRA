@@ -18,6 +18,8 @@
  * @property {number} beta
  * @property {OHLCVBar[]} history
  * @property {number} currentPrice
+ * @property {string} [market]
+ * @property {string} [currency]
  * @property {number} [trailingPE]
  * @property {number} [dividendYield]
  * @property {number} [pegRatio]

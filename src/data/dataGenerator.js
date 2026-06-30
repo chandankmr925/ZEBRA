@@ -1,6 +1,7 @@
-/** Synthetic S&P 500 universe generator with sector-aware price dynamics */
+/** Synthetic universe generator with sector-aware price dynamics */
 
 import { HISTORY_DAYS, MIN_HISTORY_BARS } from '../config/constants.js';
+import { getMarketConfig } from '../config/markets.js';
 import { getReferencePrice } from '../config/referencePrices.js';
 import { SECTORS } from '../config/sectors.js';
 import { getSectorForTicker } from '../config/tickerSectors.js';
@@ -28,27 +29,35 @@ function scaleHistoryToTarget(history, targetPrice) {
 
 /**
  * @param {number} [count=500]
+ * @param {string} [marketId='US']
  * @returns {import('../types.js').Stock[]}
  */
-export function generateSP500Universe(count = 500) {
+export function generateSyntheticUniverse(count = 500, marketId = 'US') {
   if (HISTORY_DAYS < MIN_HISTORY_BARS) {
     console.warn(
       `HISTORY_DAYS (${HISTORY_DAYS}) is below MIN_HISTORY_BARS (${MIN_HISTORY_BARS}); MA Crossover will fail.`
     );
   }
 
+  const marketConfig = getMarketConfig(marketId);
+  const priceScale = marketConfig.syntheticPriceMultiplier ?? 1;
+
   const stocks = [];
-  const tickers = buildUniqueTickerList(count);
+  const tickers = buildUniqueTickerList(count, marketId);
 
   for (let i = 0; i < count; i++) {
     const ticker = tickers[i];
-    const sectorKey = getSectorForTicker(ticker, i);
+    const sectorKey = getSectorForTicker(ticker, i, marketId);
     const sector = SECTORS[sectorKey];
     const rng = createRNG(tickerSeed(ticker, i));
 
     const referencePrice = getReferencePrice(ticker);
     const [pMin, pMax] = sector.basePrice;
-    let anchorPrice = referencePrice ?? pMin + rng() * (pMax - pMin);
+    const scaledMin = pMin * priceScale;
+    const scaledMax = pMax * priceScale;
+    let anchorPrice = referencePrice != null
+      ? referencePrice * priceScale
+      : scaledMin + rng() * (scaledMax - scaledMin);
     const meanRevStrength = referencePrice != null ? 0.5 : sector.meanRev;
     let currentPrice = anchorPrice;
     let rollingVol = referencePrice != null ? sector.baseVol * 0.25 : sector.baseVol;
@@ -93,18 +102,25 @@ export function generateSP500Universe(count = 500) {
     // Keep market price near realistic reference (±2%) without tying it to user buy price
     if (referencePrice != null) {
       const wiggle = (rng() - 0.5) * 0.04;
-      scaleHistoryToTarget(history, round2(referencePrice * (1 + wiggle)));
+      scaleHistoryToTarget(history, round2(referencePrice * priceScale * (1 + wiggle)));
     }
 
     stocks.push({
       ticker,
-      name: `${ticker} Corp.`,
+      name: marketId === 'IN' ? `${ticker} Ltd.` : `${ticker} Corp.`,
       sector: sectorKey,
       beta: sector.beta,
       history,
       currentPrice: history[history.length - 1].close,
+      market: marketId,
+      currency: marketConfig.currency,
     });
   }
 
   return stocks;
+}
+
+/** @deprecated Use generateSyntheticUniverse */
+export function generateSP500Universe(count = 500) {
+  return generateSyntheticUniverse(count, 'US');
 }

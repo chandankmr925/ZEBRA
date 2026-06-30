@@ -1,9 +1,9 @@
 /**
- * Central application state store.
+ * Central application state store — isolated state per market dashboard.
  */
 
-import { MAX_UNIVERSE_SIZE } from '../config/constants.js';
-import { generateSP500Universe } from '../data/dataGenerator.js';
+import { getMarketConfig, MARKET_IDS } from '../config/markets.js';
+import { generateSyntheticUniverse } from '../data/dataGenerator.js';
 import {
   applyQuotesToUniverse,
   fetchLiveQuotes,
@@ -11,57 +11,154 @@ import {
   mergeLiveWithSynthetic,
 } from '../data/marketClient.js';
 import { buildUniqueTickerList } from '../config/universeTickers.js';
-import { loadSavedPositions, savePositions } from './portfolioStorage.js';
+import { loadAllMarketPositions, savePositions } from './portfolioStorage.js';
 
-/** @type {import('../types.js').Stock[]} */
-let stockUniverse = [];
-
-/** @type {import('../types.js').ScanResult[]} */
-let lastScanResults = [];
-
-/** @type {import('../types.js').Position[]} */
-let myPositions = [];
-
-/** @type {import('../types.js').StrategyEngine[]} */
-let lastActiveStrategies = [];
-
-/** @type {'synthetic'|'live'|'mixed'} */
-let dataSource = 'synthetic';
+const MARKET_STORAGE_PREFIX = 'zebra:market';
 
 /** @type {string|null} */
-let lastQuoteTime = null;
+let currentUserId = null;
+
+/**
+ * @param {string} userId
+ */
+function marketStorageKey(userId) {
+  return `${MARKET_STORAGE_PREFIX}:${userId}`;
+}
+
+/**
+ * @typedef {object} DashboardSlice
+ * @property {import('../types.js').Stock[]} stockUniverse
+ * @property {import('../types.js').ScanResult[]} lastScanResults
+ * @property {import('../types.js').Position[]} myPositions
+ * @property {import('../types.js').StrategyEngine[]} lastActiveStrategies
+ * @property {'synthetic'|'live'|'mixed'} dataSource
+ * @property {string|null} lastQuoteTime
+ * @property {string|null} lastScanTime
+ * @property {{ totalStocks: number, topBuys: number, strategies: Record<string, boolean> }|null} scanConfig
+ * @property {{ buys: import('../types.js').ScanResult[], totalBuyCount: number }|null} buyDeskCache
+ * @property {{ aiPicks: import('../types.js').ScanResult[], aiResponse: object|null }|null} aiDeskCache
+ */
+
+/** @returns {DashboardSlice} */
+function createEmptySlice() {
+  return {
+    stockUniverse: [],
+    lastScanResults: [],
+    myPositions: [],
+    lastActiveStrategies: [],
+    dataSource: 'synthetic',
+    lastQuoteTime: null,
+    lastScanTime: null,
+    scanConfig: null,
+    buyDeskCache: null,
+    aiDeskCache: null,
+  };
+}
+
+/** @type {Record<string, DashboardSlice>} */
+const slices = Object.fromEntries(MARKET_IDS.map((id) => [id, createEmptySlice()]));
+
+/** @type {string} */
+let activeMarket = 'US';
+
+function activeSlice() {
+  return slices[activeMarket];
+}
 
 export const store = {
   get stockUniverse() {
-    return stockUniverse;
+    return activeSlice().stockUniverse;
   },
 
   get lastScanResults() {
-    return lastScanResults;
+    return activeSlice().lastScanResults;
   },
 
   get lastActiveStrategies() {
-    return lastActiveStrategies;
+    return activeSlice().lastActiveStrategies;
   },
 
   get myPositions() {
-    return myPositions;
+    return activeSlice().myPositions;
   },
 
   get dataSource() {
-    return dataSource;
+    return activeSlice().dataSource;
   },
 
   get lastQuoteTime() {
-    return lastQuoteTime;
+    return activeSlice().lastQuoteTime;
+  },
+
+  get lastScanTime() {
+    return activeSlice().lastScanTime;
+  },
+
+  get scanConfig() {
+    return activeSlice().scanConfig;
+  },
+
+  get buyDeskCache() {
+    return activeSlice().buyDeskCache;
+  },
+
+  get aiDeskCache() {
+    return activeSlice().aiDeskCache;
+  },
+
+  get activeMarket() {
+    return activeMarket;
+  },
+
+  get currentUserId() {
+    return currentUserId;
+  },
+
+  /**
+   * Reset all dashboard state and bind to a user account.
+   * @param {string|null} userId
+   */
+  setCurrentUser(userId) {
+    currentUserId = userId;
+    for (const id of MARKET_IDS) {
+      slices[id] = createEmptySlice();
+    }
+    if (!userId) {
+      activeMarket = 'US';
+      return;
+    }
+    const saved = typeof localStorage !== 'undefined'
+      ? localStorage.getItem(marketStorageKey(userId))
+      : null;
+    activeMarket = saved && getMarketConfig(saved) ? saved : 'US';
+  },
+
+  getMarketConfig() {
+    return getMarketConfig(activeMarket);
+  },
+
+  /**
+   * Switch dashboard — preserves each market's universe, scan, and portfolio.
+   * @param {string} marketId
+   */
+  setActiveMarket(marketId) {
+    const next = getMarketConfig(marketId).id;
+    if (next === activeMarket) return;
+
+    activeMarket = next;
+    if (typeof localStorage !== 'undefined' && currentUserId) {
+      localStorage.setItem(marketStorageKey(currentUserId), activeMarket);
+    }
   },
 
   getUniverse() {
-    if (stockUniverse.length === 0) {
-      stockUniverse = generateSP500Universe(MAX_UNIVERSE_SIZE);
-      dataSource = 'synthetic';
+    const s = activeSlice();
+    const config = getMarketConfig(activeMarket);
+    if (s.stockUniverse.length === 0) {
+      s.stockUniverse = generateSyntheticUniverse(config.maxUniverse, activeMarket);
+      s.dataSource = 'synthetic';
     }
-    return stockUniverse;
+    return s.stockUniverse;
   },
 
   /**
@@ -69,38 +166,60 @@ export const store = {
    * @param {'synthetic'|'live'|'mixed'} source
    */
   setUniverse(stocks, source = 'live') {
-    stockUniverse = stocks;
-    dataSource = source;
+    const s = activeSlice();
+    s.stockUniverse = stocks;
+    s.dataSource = source;
   },
 
   setScanResults(results, activeStrategies = []) {
-    lastScanResults = results;
-    lastActiveStrategies = activeStrategies;
+    const s = activeSlice();
+    s.lastScanResults = results;
+    s.lastActiveStrategies = activeStrategies;
+  },
+
+  setScanConfig(config) {
+    activeSlice().scanConfig = config;
+  },
+
+  setLastScanTime(time) {
+    activeSlice().lastScanTime = time;
+  },
+
+  setBuyDeskCache(buys, totalBuyCount) {
+    activeSlice().buyDeskCache = { buys, totalBuyCount };
+  },
+
+  setAIDeskCache(aiPicks, aiResponse) {
+    activeSlice().aiDeskCache = { aiPicks, aiResponse };
   },
 
   async setPositions(positions) {
-    myPositions = positions;
-    await savePositions(myPositions);
+    activeSlice().myPositions = positions;
+    await savePositions(positions, activeMarket);
   },
 
   async initPortfolio() {
-    myPositions = await loadSavedPositions();
-    return myPositions;
+    const all = await loadAllMarketPositions();
+    for (const id of MARKET_IDS) {
+      slices[id].myPositions = all[id] ?? [];
+    }
+    return activeSlice().myPositions;
   },
 
   async persistPortfolio() {
-    await savePositions(myPositions);
+    await savePositions(activeSlice().myPositions, activeMarket);
   },
 
   async addOrUpdatePosition(ticker, buyPrice, quantity) {
+    const s = activeSlice();
     const normalized = ticker.toUpperCase();
     const qty = quantity > 0 ? quantity : 1;
-    const existing = myPositions.find((p) => p.ticker === normalized);
+    const existing = s.myPositions.find((p) => p.ticker === normalized);
 
     if (existing) {
       existing.buyPrice = buyPrice;
       existing.quantity = qty;
-      await savePositions(myPositions);
+      await savePositions(s.myPositions, activeMarket);
       return { updated: true, position: existing };
     }
 
@@ -110,20 +229,21 @@ export const store = {
       quantity: qty,
       addedAt: new Date().toISOString(),
     };
-    myPositions.push(position);
-    await savePositions(myPositions);
+    s.myPositions.push(position);
+    await savePositions(s.myPositions, activeMarket);
     return { updated: false, position };
   },
 
   async removePosition(ticker) {
+    const s = activeSlice();
     const normalized = ticker.toUpperCase();
-    myPositions = myPositions.filter((p) => p.ticker !== normalized);
-    await savePositions(myPositions);
+    s.myPositions = s.myPositions.filter((p) => p.ticker !== normalized);
+    await savePositions(s.myPositions, activeMarket);
   },
 
   findStock(ticker) {
     const key = ticker.toUpperCase();
-    return stockUniverse.find((s) => s.ticker.toUpperCase() === key);
+    return activeSlice().stockUniverse.find((s) => s.ticker.toUpperCase() === key);
   },
 
   getMarketPrice(ticker) {
@@ -131,42 +251,41 @@ export const store = {
     return stock ? stock.currentPrice : null;
   },
 
-  /**
-   * Refresh live quotes for portfolio tickers (fast, ~1 min cache).
-   */
   async refreshPortfolioQuotes() {
-    const tickers = myPositions.map((p) => p.ticker);
+    const s = activeSlice();
+    const tickers = s.myPositions.map((p) => p.ticker);
     if (tickers.length === 0) return { quotes: {}, failed: [] };
 
     this.getUniverse();
-    const { quotes, failed, fetchedAt } = await fetchLiveQuotes(tickers);
-    applyQuotesToUniverse(stockUniverse, quotes);
-    lastQuoteTime = fetchedAt;
+    const { quotes, failed, fetchedAt } = await fetchLiveQuotes(tickers, activeMarket);
+    applyQuotesToUniverse(s.stockUniverse, quotes);
+    s.lastQuoteTime = fetchedAt;
     if (Object.keys(quotes).length > 0) {
-      dataSource = stockUniverse.some((s) => s.isLive) ? 'mixed' : dataSource;
+      s.dataSource = s.stockUniverse.some((st) => st.isLive) ? 'mixed' : s.dataSource;
     }
     return { quotes, failed };
   },
 
   /**
-   * Load live OHLCV for tickers used in a scan (slower, cached 15 min).
    * @param {number} count
    * @param {(progress: { done: number, total: number }) => void} [onProgress]
    */
   async loadLiveUniverse(count, onProgress) {
-    const tickers = buildUniqueTickerList(count).slice(0, count);
-    const synthetic = generateSP500Universe(count);
+    const s = activeSlice();
+    const config = getMarketConfig(activeMarket);
+    const tickers = buildUniqueTickerList(count, activeMarket).slice(0, count);
+    const fetchTickers = [...new Set([...tickers, config.benchmark])];
+    const synthetic = generateSyntheticUniverse(count, activeMarket);
 
-    onProgress?.({ done: 0, total: tickers.length });
+    onProgress?.({ done: 0, total: fetchTickers.length });
 
-    const { stocks, failed, fetchedAt } = await fetchUniverseStocks(tickers, 6);
+    const { stocks, failed, fetchedAt } = await fetchUniverseStocks(fetchTickers, 6, activeMarket);
 
-    onProgress?.({ done: tickers.length, total: tickers.length });
+    onProgress?.({ done: fetchTickers.length, total: fetchTickers.length });
 
-    const merged = mergeLiveWithSynthetic(stocks, synthetic);
-    stockUniverse = merged;
-    lastQuoteTime = fetchedAt;
-    dataSource = failed.length === 0 ? 'live' : 'mixed';
+    s.stockUniverse = mergeLiveWithSynthetic(stocks, synthetic);
+    s.lastQuoteTime = fetchedAt;
+    s.dataSource = failed.length === 0 ? 'live' : 'mixed';
 
     return { loaded: stocks.length, failed, fetchedAt };
   },

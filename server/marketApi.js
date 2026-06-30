@@ -51,25 +51,27 @@ export async function handleMarketApi(req, res) {
         .split(',')
         .map((t) => t.trim().toUpperCase())
         .filter(Boolean);
+      const market = (url.searchParams.get('market') || 'US').toUpperCase();
 
       if (tickers.length === 0) {
         sendJson(res, 400, { error: 'tickers query param required' });
         return;
       }
 
-      const data = await fetchLiveQuotes(tickers);
+      const data = await fetchLiveQuotes(tickers, 6, market);
       sendJson(res, 200, data);
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/market/history') {
       const ticker = (url.searchParams.get('ticker') || '').trim().toUpperCase();
+      const market = (url.searchParams.get('market') || 'US').toUpperCase();
       if (!ticker) {
         sendJson(res, 400, { error: 'ticker query param required' });
         return;
       }
 
-      const stock = await fetchStockHistory(ticker);
+      const stock = await fetchStockHistory(ticker, market);
       sendJson(res, 200, stock);
       return;
     }
@@ -79,6 +81,7 @@ export async function handleMarketApi(req, res) {
       const tickers = Array.isArray(body.tickers)
         ? body.tickers.map((t) => String(t).trim().toUpperCase()).filter(Boolean)
         : [];
+      const market = String(body.market || 'US').toUpperCase();
 
       if (tickers.length === 0) {
         sendJson(res, 400, { error: 'tickers array required in body' });
@@ -86,7 +89,7 @@ export async function handleMarketApi(req, res) {
       }
 
       const concurrency = Math.min(Math.max(Number(body.concurrency) || 6, 1), 12);
-      const data = await fetchUniverseStocks(tickers, concurrency);
+      const data = await fetchUniverseStocks(tickers, concurrency, market);
       sendJson(res, 200, data);
       return;
     }

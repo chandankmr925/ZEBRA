@@ -6,9 +6,16 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { getSectorForTicker } from '../src/config/tickerSectors.js';
-import { SECTORS } from '../src/config/sectors.js';
 import { HISTORY_DAYS } from '../src/config/constants.js';
+import { getMarketConfig } from '../src/config/markets.js';
+import {
+  detectMarketFromTicker,
+  fromYahooSymbol,
+  normalizeTicker,
+  toYahooSymbol,
+} from '../src/config/marketSymbols.js';
+import { SECTORS } from '../src/config/sectors.js';
+import { getSectorForTicker } from '../src/config/tickerSectors.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE_DIR = path.join(ROOT, 'data', 'market-cache');
@@ -20,25 +27,27 @@ const HISTORY_TTL_MS = 15 * 60_000;
 const memoryCache = new Map();
 
 const YAHOO_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (compatible; SP500Screener/1.0)',
+  'User-Agent': 'Mozilla/5.0 (compatible; ZEBRAScreener/1.0)',
   Accept: 'application/json',
 };
 
+export { fromYahooSymbol, toYahooSymbol };
+
 /**
  * @param {string} ticker
+ * @param {string} [marketId]
  */
-export function toYahooSymbol(ticker) {
-  return ticker.toUpperCase().replace(/\./g, '-');
+function resolveMarketId(ticker, marketId) {
+  if (marketId) return marketId;
+  return detectMarketFromTicker(ticker) ?? 'US';
 }
 
 /**
  * @param {string} ticker
+ * @param {string} marketId
  */
-export function fromYahooSymbol(symbol) {
-  return symbol.toUpperCase().replace(/-/g, (m, offset, str) => {
-    if (str.includes('-') && str.indexOf('-') === offset) return '.';
-    return m;
-  });
+function cacheTickerKey(ticker, marketId) {
+  return `${marketId}_${normalizeTicker(ticker, marketId)}`;
 }
 
 async function ensureCacheDir() {
@@ -142,8 +151,9 @@ async function fetchYahooFundamentals(yahooSymbol, chartMeta = {}) {
 /**
  * @param {object} chartResult
  * @param {string} ticker
+ * @param {string} marketId
  */
-function parseChartToStock(chartResult, ticker) {
+function parseChartToStock(chartResult, ticker, marketId) {
   const quote = chartResult.indicators?.quote?.[0];
   const timestamps = chartResult.timestamp || [];
 
@@ -176,21 +186,25 @@ function parseChartToStock(chartResult, ticker) {
   }
 
   const trimmed = history.slice(-HISTORY_DAYS);
-  const sectorKey = getSectorForTicker(ticker, 0);
+  const displayTicker = normalizeTicker(ticker, marketId);
+  const sectorKey = getSectorForTicker(displayTicker, 0, marketId);
   const sector = SECTORS[sectorKey] ?? SECTORS.Technology;
+  const marketConfig = getMarketConfig(marketId);
 
   const livePrice =
     chartResult.meta?.regularMarketPrice ??
     trimmed[trimmed.length - 1].close;
 
   return {
-    ticker: ticker.toUpperCase(),
-    name: chartResult.meta?.longName || chartResult.meta?.shortName || `${ticker} Corp.`,
+    ticker: displayTicker,
+    name: chartResult.meta?.longName || chartResult.meta?.shortName || `${displayTicker}`,
     sector: sectorKey,
     beta: sector.beta,
     history: trimmed,
     currentPrice: round2(livePrice),
     isLive: true,
+    market: marketId,
+    currency: marketConfig.currency,
     trailingPE: chartResult.meta?.trailingPE ?? null,
     dividendYield: chartResult.meta?.dividendYield ?? null,
     pegRatio: null,
@@ -206,16 +220,18 @@ function round2(n) {
 
 /**
  * @param {string} ticker
+ * @param {string} [marketId]
  */
-export async function fetchStockHistory(ticker) {
-  const normalized = ticker.toUpperCase();
-  const cacheKey = `history_${normalized}`;
+export async function fetchStockHistory(ticker, marketId) {
+  const resolvedMarket = resolveMarketId(ticker, marketId);
+  const normalized = normalizeTicker(ticker, resolvedMarket);
+  const cacheKey = `history_${cacheTickerKey(normalized, resolvedMarket)}`;
   const cached = await readCache(cacheKey, HISTORY_TTL_MS);
   if (cached) return cached;
 
-  const yahoo = toYahooSymbol(normalized);
+  const yahoo = toYahooSymbol(normalized, resolvedMarket);
   const chart = await fetchYahooChart(yahoo);
-  const stock = parseChartToStock(chart, normalized);
+  const stock = parseChartToStock(chart, normalized, resolvedMarket);
   const fundamentals = await fetchYahooFundamentals(yahoo, chart.meta ?? {});
   Object.assign(stock, fundamentals);
   await writeCache(cacheKey, stock, HISTORY_TTL_MS);
@@ -224,19 +240,23 @@ export async function fetchStockHistory(ticker) {
 
 /**
  * @param {string} ticker
+ * @param {string} [marketId]
  */
-export async function fetchLiveQuote(ticker) {
-  const normalized = ticker.toUpperCase();
-  const cacheKey = `quote_${normalized}`;
+export async function fetchLiveQuote(ticker, marketId) {
+  const resolvedMarket = resolveMarketId(ticker, marketId);
+  const normalized = normalizeTicker(ticker, resolvedMarket);
+  const cacheKey = `quote_${cacheTickerKey(normalized, resolvedMarket)}`;
   const cached = await readCache(cacheKey, QUOTE_TTL_MS);
   if (cached) return cached;
 
-  const stock = await fetchStockHistory(normalized);
+  const stock = await fetchStockHistory(normalized, resolvedMarket);
   const quote = {
     ticker: normalized,
     price: stock.currentPrice,
     quoteTime: stock.quoteTime,
     name: stock.name,
+    market: resolvedMarket,
+    currency: stock.currency,
   };
   await writeCache(cacheKey, quote, QUOTE_TTL_MS);
   return quote;
@@ -245,12 +265,13 @@ export async function fetchLiveQuote(ticker) {
 /**
  * @param {string[]} tickers
  * @param {number} [concurrency=6]
+ * @param {string} [marketId='US']
  */
-export async function fetchLiveQuotes(tickers, concurrency = 6) {
-  const unique = [...new Set(tickers.map((t) => t.toUpperCase()))];
+export async function fetchLiveQuotes(tickers, concurrency = 6, marketId = 'US') {
+  const unique = [...new Set(tickers.map((t) => normalizeTicker(t, marketId)))];
   const results = await mapPool(unique, async (ticker) => {
     try {
-      const quote = await fetchLiveQuote(ticker);
+      const quote = await fetchLiveQuote(ticker, marketId);
       return { ok: true, quote };
     } catch (err) {
       return { ok: false, ticker, error: err.message };
@@ -263,18 +284,19 @@ export async function fetchLiveQuotes(tickers, concurrency = 6) {
     if (r.ok) quotes[r.quote.ticker] = r.quote;
     else failed.push({ ticker: r.ticker, error: r.error });
   }
-  return { quotes, failed, fetchedAt: new Date().toISOString() };
+  return { quotes, failed, fetchedAt: new Date().toISOString(), market: marketId };
 }
 
 /**
  * @param {string[]} tickers
  * @param {number} [concurrency=6]
+ * @param {string} [marketId='US']
  */
-export async function fetchUniverseStocks(tickers, concurrency = 6) {
-  const unique = [...new Set(tickers.map((t) => t.toUpperCase()))];
+export async function fetchUniverseStocks(tickers, concurrency = 6, marketId = 'US') {
+  const unique = [...new Set(tickers.map((t) => normalizeTicker(t, marketId)))];
   const results = await mapPool(unique, async (ticker, index) => {
     try {
-      const stock = await fetchStockHistory(ticker);
+      const stock = await fetchStockHistory(ticker, marketId);
       return { ok: true, stock };
     } catch (err) {
       return { ok: false, ticker, error: err.message, index };
@@ -294,6 +316,7 @@ export async function fetchUniverseStocks(tickers, concurrency = 6) {
     failed,
     fetchedAt: new Date().toISOString(),
     source: 'yahoo-finance',
+    market: marketId,
   };
 }
 

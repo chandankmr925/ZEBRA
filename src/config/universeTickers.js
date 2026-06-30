@@ -1,25 +1,31 @@
 /** Build a deduplicated ticker list for the synthetic universe */
 
+import { NSE_TICKERS } from './indiaTickers.js';
+import { getMarketConfig } from './markets.js';
 import { SP500_TICKERS } from './tickers.js';
-import { MAX_UNIVERSE_SIZE } from './constants.js';
 
 /**
- * @param {number} [count=MAX_UNIVERSE_SIZE]
+ * @param {number} [count]
+ * @param {string} [marketId='US']
  * @returns {string[]}
  */
-export function buildUniqueTickerList(count = MAX_UNIVERSE_SIZE) {
+export function buildUniqueTickerList(count, marketId = 'US') {
+  const config = getMarketConfig(marketId);
+  const max = count ?? config.maxUniverse;
+  const source = marketId === 'IN' ? NSE_TICKERS : SP500_TICKERS;
   const unique = [];
   const seen = new Set();
 
-  for (const ticker of SP500_TICKERS) {
+  for (const ticker of source) {
     if (seen.has(ticker)) continue;
     seen.add(ticker);
     unique.push(ticker);
-    if (unique.length >= count) break;
+    if (unique.length >= max) break;
   }
 
-  while (unique.length < count) {
-    unique.push(`SYM${String(unique.length + 1).padStart(3, '0')}`);
+  const prefix = marketId === 'IN' ? 'IN' : 'SYM';
+  while (unique.length < max) {
+    unique.push(`${prefix}${String(unique.length + 1).padStart(3, '0')}`);
   }
 
   return unique;
