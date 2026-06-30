@@ -20,6 +20,7 @@ export function normalizePositions(data) {
     .map((p) => ({
       ticker: p.ticker.toUpperCase(),
       buyPrice: p.buyPrice,
+      quantity: typeof p.quantity === 'number' && p.quantity > 0 ? p.quantity : 1,
       addedAt: p.addedAt || new Date().toISOString(),
     }));
 }
@@ -53,9 +54,10 @@ export async function writePortfolioToDisk(positions) {
   const payload = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    positions: positions.map(({ ticker, buyPrice, addedAt }) => ({
+    positions: positions.map(({ ticker, buyPrice, quantity, addedAt }) => ({
       ticker,
       buyPrice,
+      quantity,
       addedAt,
     })),
   };

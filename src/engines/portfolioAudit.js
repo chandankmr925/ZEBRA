@@ -2,6 +2,7 @@
 
 import { CONSENSUS_THRESHOLDS, PORTFOLIO_RULES } from '../config/constants.js';
 import { getReferencePrice } from '../config/referencePrices.js';
+import { calculateATR } from '../utils/technical.js';
 import { stockToScanResult } from './scanEngine.js';
 
 /**
@@ -25,6 +26,20 @@ function buildStockLookup(stockUniverse) {
 }
 
 /**
+ * @param {number} buyPrice
+ * @param {number} marketPrice
+ * @param {number} stopPrice
+ * @param {number} takeProfitPrice
+ * @returns {number|null}
+ */
+function computeRiskReward(buyPrice, marketPrice, stopPrice, takeProfitPrice) {
+  const risk = marketPrice - stopPrice;
+  const reward = takeProfitPrice - marketPrice;
+  if (risk <= 0 || reward <= 0) return null;
+  return reward / risk;
+}
+
+/**
  * Resolve market price: universe stock is authoritative; never fall back to buy price when stock exists.
  * @param {import('../types.js').Position} position
  * @param {import('../types.js').ScanResult|null} scanResult
@@ -39,24 +54,65 @@ export function resolveMarketPrice(position, scanResult, stock = null) {
 
 /**
  * @param {import('../types.js').Position} position
+ * @returns {number}
+ */
+export function getPositionQuantity(position) {
+  const q = position.quantity;
+  return typeof q === 'number' && q > 0 ? q : 1;
+}
+
+/**
+ * @param {import('../types.js').Position} position
  * @param {import('../types.js').ScanResult|null} scanResult
  * @param {import('../types.js').Stock|null} [stock]
  * @returns {import('../types.js').PortfolioAudit}
  */
 export function auditPosition(position, scanResult, stock = null) {
   const marketPrice = resolveMarketPrice(position, scanResult, stock);
+  const quantity = getPositionQuantity(position);
+  const costBasis = position.buyPrice * quantity;
+  const marketValue = marketPrice * quantity;
+  const pnlDollars = marketValue - costBasis;
   const returnPct = ((marketPrice - position.buyPrice) / position.buyPrice) * 100;
   const score = scanResult ? scanResult.score : 0;
   const classification = scanResult ? scanResult.classification : 'HOLD';
   const rsi = scanResult ? scanResult.rsi : null;
 
-  const { STOP_LOSS_PCT, TAKE_PROFIT_PCT, TAKE_PROFIT_RSI, ALGORITHMIC_EXIT_MAX_RETURN_PCT, STRONG_HOLD_MIN_RETURN_PCT } =
-    PORTFOLIO_RULES;
+  const {
+    STOP_LOSS_PCT,
+    TAKE_PROFIT_PCT,
+    TAKE_PROFIT_RSI,
+    ALGORITHMIC_EXIT_MAX_RETURN_PCT,
+    STRONG_HOLD_MIN_RETURN_PCT,
+    ATR_STOP_MULTIPLIER,
+  } = PORTFOLIO_RULES;
+
+  const fixedStopPrice = position.buyPrice * (1 + STOP_LOSS_PCT / 100);
+  const takeProfitPrice = position.buyPrice * (1 + TAKE_PROFIT_PCT / 100);
+
+  let atrStopPrice = null;
+  let atrStopTriggered = false;
+  if (stock?.history?.length) {
+    const atr = calculateATR(stock.history, 14);
+    if (atr != null) {
+      atrStopPrice = position.buyPrice - ATR_STOP_MULTIPLIER * atr;
+      if (marketPrice <= atrStopPrice) atrStopTriggered = true;
+    }
+  }
+
+  const effectiveStopPrice =
+    atrStopPrice != null ? Math.max(fixedStopPrice, atrStopPrice) : fixedStopPrice;
+  const riskReward = computeRiskReward(
+    position.buyPrice,
+    marketPrice,
+    effectiveStopPrice,
+    takeProfitPrice
+  );
 
   let action;
 
-  if (returnPct <= STOP_LOSS_PCT) {
-    action = 'STOP LOSS / CUT';
+  if (returnPct <= STOP_LOSS_PCT || atrStopTriggered) {
+    action = atrStopTriggered ? 'ATR STOP LOSS' : 'STOP LOSS / CUT';
   } else if (returnPct > TAKE_PROFIT_PCT && (classification === 'SELL' || (rsi !== null && rsi > TAKE_PROFIT_RSI))) {
     action = 'TAKE PROFIT';
   } else if (score <= CONSENSUS_THRESHOLDS.SELL && returnPct <= ALGORITHMIC_EXIT_MAX_RETURN_PCT) {
@@ -73,7 +129,20 @@ export function auditPosition(position, scanResult, stock = null) {
     action = classification === 'SELL' ? 'ALGORITHMIC EXIT' : 'STRONG HOLD';
   }
 
-  return { marketPrice, returnPct, score, classification, action, rsi };
+  return {
+    marketPrice,
+    returnPct,
+    quantity,
+    costBasis,
+    marketValue,
+    pnlDollars,
+    score,
+    classification,
+    action,
+    rsi,
+    riskReward,
+    atrStopPrice,
+  };
 }
 
 /**
@@ -93,7 +162,6 @@ export function runPortfolioAudit(positions, scanResults, stockUniverse, activeS
         const stock = stockMap.get(key) ?? null;
         let scanResult = resultMap.get(key) ?? null;
 
-        // Portfolio tickers outside the last scan slice still get live consensus + correct price
         if (!scanResult && stock && activeStrategies.length > 0) {
           scanResult = stockToScanResult(stock, activeStrategies);
         }

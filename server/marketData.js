@@ -105,6 +105,41 @@ async function fetchYahooChart(yahooSymbol) {
 }
 
 /**
+ * @param {string} yahooSymbol
+ * @param {object} [chartMeta]
+ */
+async function fetchYahooFundamentals(yahooSymbol, chartMeta = {}) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=summaryDetail,defaultKeyStatistics`;
+    const res = await fetch(url, { headers: YAHOO_HEADERS });
+    if (!res.ok) {
+      return {
+        trailingPE: chartMeta.trailingPE ?? null,
+        dividendYield: chartMeta.dividendYield ?? null,
+        pegRatio: null,
+      };
+    }
+
+    const json = await res.json();
+    const result = json?.quoteSummary?.result?.[0];
+    const sd = result?.summaryDetail;
+    const ks = result?.defaultKeyStatistics;
+
+    return {
+      trailingPE: sd?.trailingPE?.raw ?? chartMeta.trailingPE ?? null,
+      dividendYield: sd?.dividendYield?.raw ?? chartMeta.dividendYield ?? null,
+      pegRatio: ks?.pegRatio?.raw ?? null,
+    };
+  } catch {
+    return {
+      trailingPE: chartMeta.trailingPE ?? null,
+      dividendYield: chartMeta.dividendYield ?? null,
+      pegRatio: null,
+    };
+  }
+}
+
+/**
  * @param {object} chartResult
  * @param {string} ticker
  */
@@ -156,6 +191,9 @@ function parseChartToStock(chartResult, ticker) {
     history: trimmed,
     currentPrice: round2(livePrice),
     isLive: true,
+    trailingPE: chartResult.meta?.trailingPE ?? null,
+    dividendYield: chartResult.meta?.dividendYield ?? null,
+    pegRatio: null,
     quoteTime: chartResult.meta?.regularMarketTime
       ? new Date(chartResult.meta.regularMarketTime * 1000).toISOString()
       : new Date().toISOString(),
@@ -178,6 +216,8 @@ export async function fetchStockHistory(ticker) {
   const yahoo = toYahooSymbol(normalized);
   const chart = await fetchYahooChart(yahoo);
   const stock = parseChartToStock(chart, normalized);
+  const fundamentals = await fetchYahooFundamentals(yahoo, chart.meta ?? {});
+  Object.assign(stock, fundamentals);
   await writeCache(cacheKey, stock, HISTORY_TTL_MS);
   return stock;
 }

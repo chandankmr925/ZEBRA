@@ -92,12 +92,14 @@ export const store = {
     await savePositions(myPositions);
   },
 
-  async addOrUpdatePosition(ticker, buyPrice) {
+  async addOrUpdatePosition(ticker, buyPrice, quantity) {
     const normalized = ticker.toUpperCase();
+    const qty = quantity > 0 ? quantity : 1;
     const existing = myPositions.find((p) => p.ticker === normalized);
 
     if (existing) {
       existing.buyPrice = buyPrice;
+      existing.quantity = qty;
       await savePositions(myPositions);
       return { updated: true, position: existing };
     }
@@ -105,6 +107,7 @@ export const store = {
     const position = {
       ticker: normalized,
       buyPrice,
+      quantity: qty,
       addedAt: new Date().toISOString(),
     };
     myPositions.push(position);

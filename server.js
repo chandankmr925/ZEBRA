@@ -9,6 +9,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { handlePortfolioApi } from './server/portfolioApi.js';
 import { handleMarketApi } from './server/marketApi.js';
+import { handleRecommendApi } from './server/recommendApi.js';
+import { handleExplainApi } from './server/explainApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, 'dist');
@@ -61,6 +63,14 @@ const server = createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/market')) {
     handleMarketApi(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/recommend')) {
+    handleRecommendApi(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/explain')) {
+    handleExplainApi(req, res);
     return;
   }
   serveStatic(req, res);
